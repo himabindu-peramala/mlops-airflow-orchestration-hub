@@ -1,0 +1,71 @@
+version: '3.8'
+x-airflow-common: &airflow-common
+  build: .
+  environment: &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__CORE__FERNET_KEY: ''
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session'
+    AIRFLOW__CORE__ENABLE_XCOM_PICKLING: 'true'
+    _PIP_ADDITIONAL_DEPENDENCIES: 'scikit-learn kneed pendulum'
+    PYTHONPATH: /opt/airflow/dags/lab1:/opt/airflow/dags/lab2:/opt/airflow/dags/lab3
+  volumes:
+    - ./Lab_1/dags:/opt/airflow/dags/lab1
+    - ./Lab_2/dags:/opt/airflow/dags/lab2
+    - ./Lab_3/dags:/opt/airflow/dags/lab3
+    - ./Lab_1/data:/opt/airflow/Lab_1/data
+    - ./Lab_2/data:/opt/airflow/Lab_2/data
+    - ./Lab_3/data:/opt/airflow/Lab_3/data
+  user: "${AIRFLOW_UID:-50000}:0"
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    healthcheck:
+      test: [ "CMD", "pg_isready", "-U", "airflow" ]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+
+  airflow-init:
+    <<: *airflow-common
+    command: version
+    environment:
+      <<: *airflow-common-env
+      _AIRFLOW_DB_UPGRADE: 'true'
+      _AIRFLOW_WWW_USER_CREATE: 'true'
+      _AIRFLOW_WWW_USER_USERNAME: airflow
+      _AIRFLOW_WWW_USER_PASSWORD: airflow
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - "8081:8080"
+    healthcheck:
+      test: [ "CMD", "curl", "--fail", "http://localhost:8080/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    healthcheck:
+      test: [ "CMD-SHELL", 'airflow jobs check --job-type SchedulerJob --hostname "$${HOSTNAME}"' ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
